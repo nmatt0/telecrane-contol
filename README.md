@@ -1,4 +1,4 @@
-# Crane Remote (Flipper Zero)
+# Telecrane Control (Flipper Zero)
 
 A Flipper Zero app for Telecrane-style industrial crane radio remotes. It sniffs a
 remote's serial off the air, saves it, and transmits forged command frames (2FSK,
@@ -56,7 +56,7 @@ ufbt launch
 ```
 
 This builds the app, uploads it, and launches it once. To have it show up under
-**Apps > Sub-GHz > Crane Remote**, copy `dist/crane_remote.fap` into the Flipper's
+**Apps > Sub-GHz > Telecrane Control**, copy `dist/crane_remote.fap` into the Flipper's
 `/ext/apps/Sub-GHz/` folder with qFlipper or the ufbt storage helper.
 
 ## Debug logging

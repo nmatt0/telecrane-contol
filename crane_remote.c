@@ -1,5 +1,5 @@
 /*
- * Crane Remote - forge frames for Telecrane-style 2FSK crane remotes
+ * Telecrane Control - forge frames for Telecrane-style 2FSK crane remotes
  *
  * Serial format (4 bytes, shown as 8 chars): C + channel-nibble + 6-digit ID.
  *   The 6 digits are 3 decimal pairs that become the 3 ID bytes, e.g.
@@ -23,6 +23,7 @@
 #include <gui/view_dispatcher.h>
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_input.h>
+#include <gui/modules/dialog_ex.h>
 #include <gui/canvas.h>
 #include <gui/view.h>
 #include <input/input.h>
@@ -34,7 +35,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-#define TAG "CraneRemote"
+#define TAG "TelecraneControl"
 
 // ----------------------------------------------------------------------------
 // protocol constants
@@ -83,7 +84,8 @@ typedef struct {
 } CraneCmd;
 
 static const CraneCmd crane_cmds[] = {
-    {"EDIT", 0x0000}, // index 0: edit entry, never transmitted
+    {"* EDIT", 0x0000},   // index 0: edit entry, never transmitted
+    {"* DELETE", 0x0000}, // index 1: delete entry, never transmitted
     {"START", 0x0010},
     {"STOP", 0x0008},
     {"UP", 0x0004},
@@ -99,6 +101,7 @@ static const CraneCmd crane_cmds[] = {
 };
 #define CRANE_CMD_COUNT (int)(sizeof(crane_cmds) / sizeof(crane_cmds[0]))
 #define CRANE_CMD_EDIT 0
+#define CRANE_CMD_DELETE 1
 
 // idle frame templates, 50 nibbles = 200 bits (from signal-demod-file output)
 static const uint8_t crane_tpl_ch8[] = {
@@ -497,6 +500,7 @@ typedef enum {
     CraneSceneRcList,
     CraneSceneTx,
     CraneSceneEdit,
+    CraneSceneConfirmDelete,
     CraneSceneTextInput,
     CraneSceneSniff,
 } CraneScene;
@@ -533,12 +537,14 @@ typedef struct {
     ViewDispatcher* view_dispatcher;
     Submenu* submenu;
     TextInput* text_input;
+    DialogEx* dialog;
     View* tx_view;
     View* sniff_view;
     uint8_t current_scene;
     uint8_t current_rc;
     CraneTiMode ti_mode;
     char edit_buffer[24];
+    char confirm_text[64];
     char new_serial[CRANE_SERIAL_LEN];
     FuriThread* worker;
 } CraneApp;
@@ -733,6 +739,7 @@ static void crane_scene_main(CraneApp* app);
 static void crane_scene_rc_list(CraneApp* app);
 static void crane_scene_tx(CraneApp* app);
 static void crane_scene_edit(CraneApp* app);
+static void crane_scene_confirm_delete(CraneApp* app);
 static void crane_scene_sniff(CraneApp* app);
 static void crane_text_input_callback(void* context);
 static void crane_submenu_edit_callback(void* context, uint32_t index);
@@ -772,7 +779,7 @@ static void crane_scene_main(CraneApp* app) {
     crane_worker_mode = CraneModeIdle;
     crane_dbg("scene: main");
     submenu_reset(app->submenu);
-    submenu_set_header(app->submenu, "Crane Remote");
+    submenu_set_header(app->submenu, "Telecrane Control");
     submenu_add_item(app->submenu, "My RCs", 1, crane_submenu_main_callback, app);
     submenu_add_item(app->submenu, "New RC from Serial", 2, crane_submenu_main_callback, app);
     submenu_add_item(app->submenu, "Sniff RC", 3, crane_submenu_main_callback, app);
@@ -855,6 +862,8 @@ static bool crane_tx_view_input_callback(InputEvent* event, void* context) {
             if (event->key == InputKeyOk) {
                 if (model->selection == CRANE_CMD_EDIT) {
                     crane_scene_edit(app);
+                } else if (model->selection == CRANE_CMD_DELETE) {
+                    crane_scene_confirm_delete(app);
                 } else {
                     crane_profile(crane_rcs[app->current_rc].serial, &crane_tx_profile);
                     crane_tx_mask = crane_cmds[model->selection].mask;
@@ -935,6 +944,47 @@ static void crane_submenu_edit_callback(void* context, uint32_t index) {
         false);
     app->current_scene = CraneSceneTextInput;
     view_dispatcher_switch_to_view(app->view_dispatcher, CraneSceneTextInput);
+}
+
+// ---- scene: confirm delete (yes/no)
+
+static void crane_rc_delete(size_t idx) {
+    if (idx >= crane_rc_count) {
+        return;
+    }
+    for (size_t i = idx; i + 1 < crane_rc_count; i++) {
+        crane_rcs[i] = crane_rcs[i + 1];
+    }
+    crane_rc_count--;
+    crane_save_rcs();
+}
+
+static void crane_dialog_delete_callback(DialogExResult result, void* context) {
+    CraneApp* app = context;
+    if (result == DialogExResultRight) {
+        // yes: delete and return to the RC list
+        crane_dbgf("delete rc=%s", crane_rcs[app->current_rc].serial);
+        crane_rc_delete(app->current_rc);
+        crane_scene_rc_list(app);
+    } else {
+        // no (or center/back): return to the RC transmit screen
+        crane_scene_tx(app);
+    }
+}
+
+static void crane_scene_confirm_delete(CraneApp* app) {
+    const CraneRc* rc = &crane_rcs[app->current_rc];
+    crane_dbg("scene: confirm delete");
+    snprintf(app->confirm_text, sizeof(app->confirm_text), "%.16s\n%s", rc->name, rc->serial);
+    dialog_ex_reset(app->dialog);
+    dialog_ex_set_context(app->dialog, app);
+    dialog_ex_set_result_callback(app->dialog, crane_dialog_delete_callback);
+    dialog_ex_set_header(app->dialog, "Delete RC?", 64, 2, AlignCenter, AlignTop);
+    dialog_ex_set_text(app->dialog, app->confirm_text, 64, 28, AlignCenter, AlignCenter);
+    dialog_ex_set_left_button_text(app->dialog, "No");
+    dialog_ex_set_right_button_text(app->dialog, "Yes");
+    app->current_scene = CraneSceneConfirmDelete;
+    view_dispatcher_switch_to_view(app->view_dispatcher, CraneSceneConfirmDelete);
 }
 
 // ---- scene: text input (shared: edit name/serial, new rc serial/name)
@@ -1061,6 +1111,9 @@ static bool crane_navigation_callback(void* context) {
         case CraneSceneEdit:
             crane_scene_tx(app);
             return true;
+        case CraneSceneConfirmDelete:
+            crane_scene_tx(app);
+            return true;
         case CraneSceneTextInput:
             crane_scene_main(app);
             return true;
@@ -1091,6 +1144,7 @@ int32_t crane_remote_app(void* p) {
     app->view_dispatcher = view_dispatcher_alloc();
     app->submenu = submenu_alloc();
     app->text_input = text_input_alloc();
+    app->dialog = dialog_ex_alloc();
 
     app->tx_view = view_alloc();
     view_allocate_model(app->tx_view, ViewModelTypeLocking, sizeof(CraneTxModel));
@@ -1112,6 +1166,8 @@ int32_t crane_remote_app(void* p) {
     view_dispatcher_add_view(
         app->view_dispatcher, CraneSceneEdit, submenu_get_view(app->submenu));
     view_dispatcher_add_view(
+        app->view_dispatcher, CraneSceneConfirmDelete, dialog_ex_get_view(app->dialog));
+    view_dispatcher_add_view(
         app->view_dispatcher, CraneSceneTextInput, text_input_get_view(app->text_input));
     view_dispatcher_add_view(app->view_dispatcher, CraneSceneSniff, app->sniff_view);
     view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
@@ -1132,11 +1188,13 @@ int32_t crane_remote_app(void* p) {
     view_dispatcher_remove_view(app->view_dispatcher, CraneSceneRcList);
     view_dispatcher_remove_view(app->view_dispatcher, CraneSceneTx);
     view_dispatcher_remove_view(app->view_dispatcher, CraneSceneEdit);
+    view_dispatcher_remove_view(app->view_dispatcher, CraneSceneConfirmDelete);
     view_dispatcher_remove_view(app->view_dispatcher, CraneSceneTextInput);
     view_dispatcher_remove_view(app->view_dispatcher, CraneSceneSniff);
     view_dispatcher_free(app->view_dispatcher);
     submenu_free(app->submenu);
     text_input_free(app->text_input);
+    dialog_ex_free(app->dialog);
     furi_record_close(RECORD_GUI);
     free(app);
     crane_app = NULL;

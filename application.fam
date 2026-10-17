@@ -1,6 +1,6 @@
 App(
     appid="crane_remote",
-    name="Crane Remote",
+    name="Telecrane Control",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="crane_remote_app",
     requires=["gui"],
