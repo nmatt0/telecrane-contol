@@ -13,7 +13,8 @@
  * Sniff: hops the 16 channels in async RX (CC1101 GDO0 = sliced data),
  * decodes level/duration captures, extracts the ID from valid frames.
  *
- * Build: ufbt (MNTM SDK).  Deploy: python3 deploy_crane.py [port]
+ * Build: ufbt (MNTM SDK).  See README.md for install; PROTOCOL.md for the
+ * on-air protocol.
  */
 #include <furi.h>
 #include <furi_hal_subghz.h>

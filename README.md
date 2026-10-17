@@ -37,6 +37,10 @@ ID bytes 12, 34, 56).
 Channel plan: ch8 at 848.934 MHz and ch9 at 850.918 MHz were measured directly; the
 channel step is 1.9843 MHz and the other channels are extrapolated from it.
 
+See [PROTOCOL.md](PROTOCOL.md) for the full writeup: the CC1101 register values, the
+16-channel frequency table, the serial/addressing format, the bit-level frame layout,
+the command masks, and the timing.
+
 ## Build
 
 Install [ufbt](https://github.com/flipperdevices/flipperzero-ufbt), then:
