@@ -1,0 +1,10 @@
+App(
+    appid="crane_remote",
+    name="Crane Remote",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="crane_remote_app",
+    requires=["gui"],
+    sources=["crane_remote.c"],
+    fap_version=(1, 0),
+    fap_description="Sends forged frames to Telecrane-style 2FSK crane remotes (848.93/850.92 MHz)",
+)

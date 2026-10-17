@@ -1,0 +1,10 @@
+# ufbt build output
+dist/
+.ufbt/
+*.fap
+*.elf
+
+# editor / tooling
+.vscode/
+__pycache__/
+*.pyc
