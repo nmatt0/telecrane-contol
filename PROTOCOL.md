@@ -101,24 +101,26 @@ Example: `C8123456` is channel 8, ID bytes `12 34 56` (`0x0C 0x22 0x38`).
 
 ## Frame structure
 
-A frame is 200 bits. Counting from the first bit on the air:
+Bit 0 is the first bit of the sync word. The `0x55` preamble comes before it,
+but its length varies with how much the demodulator recovers, so all offsets are
+counted from the start of the sync word. From sync onward a frame is 120 bits:
 
 | Bits | Field | Notes |
 |------|-------|-------|
-| 0-79   | preamble | `0x55...` alternating pattern (~77 usable bits) |
-| 80-115 | sync | 36-bit sync word `0x45BA85BA8` |
-| 116-126 | gap | 11 zero bits |
-| 127     | marker | a single `1` bit |
-| 128-130 | channel tag | varies by channel (ch8 = `000`, ch9 = `001`) |
-| 131-154 | ID | 24-bit ID, MSB first, 3 bytes |
-| 155-159 | button field | low 5 bits of the command mask |
-| 160-175 | 16-bit field | `base + mask` (see Commands) |
-| 176-199 | trailer | template tail |
+| before 0 | preamble | `0x55...` alternating pattern, ~77 bits, variable length |
+| 0-35   | sync | 36-bit sync word `0x45BA85BA8` |
+| 36-46  | gap zeros | 11 zero bits |
+| 47     | marker | a single `1` bit |
+| 48-50  | channel tag | varies by channel (ch8 = `000`, ch9 = `001`) |
+| 51-74  | ID | 24-bit ID, MSB first, 3 bytes |
+| 75-79  | button field | low 5 bits of the command mask |
+| 80-95  | 16-bit field | `base + mask` (see Commands) |
+| 96-119 | trailer | template tail |
 
-The region from the `1` marker at bit 127 through bit 130 is the 15-bit "gap"
-between the sync word and the ID: 11 zeros, the marker, then 3 channel-dependent
-bits. The decoder verifies the 11 zeros and the marker but skips the 3
-channel bits (it already knows the channel from the receive frequency).
+Bits 36-50 are the 15-bit "gap" between the sync word and the ID: 11 zeros, the
+marker, then 3 channel-dependent bits. The decoder verifies the 11 zeros and the
+marker but skips the 3 channel bits (it already knows the channel from the
+receive frequency).
 
 The `base` for the 16-bit field is `0x0007` on channels 0-8 and `0x0006` on
 channels 9-15. The transmitted value is `base + command_mask`.
@@ -126,8 +128,8 @@ channels 9-15. The transmitted value is `base + command_mask`.
 ## Commands
 
 Each command is a 16-bit mask. It feeds the frame in two places: its low 5 bits
-go into the button field at bits 155-159, and the full value is added to `base`
-to form the 16-bit field at bits 160-175.
+go into the button field at bits 75-79, and the full value is added to `base`
+to form the 16-bit field at bits 80-95.
 
 | Command | Mask |
 |---------|--------|
@@ -162,10 +164,11 @@ hand; other remote variants may map buttons differently.
 1. Hop to a channel, program its frequency and deviation, and receive in async
    mode with GDO0 as sliced data.
 2. Capture level/duration edges and quantize them to bits at ~53 us each.
-3. Slide a window looking for the 36-bit sync word `0x45BA85BA8`.
-4. On a sync hit, check the gap: 11 zeros then a `1`. Skip the 3
-   channel-dependent bits.
-5. Read the next 24 bits as 3 ID bytes. Reject the frame if any byte exceeds 99
+3. Slide a window looking for the 36-bit sync word `0x45BA85BA8`. That hit
+   defines bit 0 for the rest of the frame.
+4. On a sync hit, check the gap: the 11 zeros at bits 36-46 then the `1` marker
+   at bit 47. Skip the 3 channel-dependent bits at 48-50.
+5. Read bits 51-74 as 3 ID bytes. Reject the frame if any byte exceeds 99
    (it cannot be a valid decimal-pair ID, so it is noise).
 6. Assemble the serial as `C` + the channel nibble (known from the receive
    frequency) + the three ID bytes as decimal pairs.
@@ -177,7 +180,7 @@ structural filter beyond the sync word and the gap pattern.
 
 - Channels other than 8 and 9 are extrapolated from the measured step and have
   not been verified on-air.
-- The 3 channel-tag bits at 128-130 are observed (`000` on ch8, `001` on ch9)
+- The 3 channel-tag bits at 48-50 are observed (`000` on ch8, `001` on ch9)
   but not fully characterized across all channels.
 - The exact bit boundaries of the preamble and trailer are approximate; the
   sync word, gap, ID, and command fields are the parts that matter for
